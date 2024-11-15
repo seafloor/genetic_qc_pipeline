@@ -12,11 +12,15 @@ qc_thresholds:
   maf: 0.01
   mac: 20
   hwe: 1e-6
-  ibd:
+  pihat: 0.2
   het:
   vmiss: 0.02
   smiss: 0.05
   info: 0.7
+  qc_prune_window: 50
+  qc_prune_step: 250
+  qc_prune_r2: 0.2
+  qc_prune_maf: 0.05
 
 run:
   threads: 8

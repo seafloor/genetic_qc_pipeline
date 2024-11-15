@@ -6,10 +6,13 @@
 # currently missing a sex check
 # currently missing an INFO check/filter
 # add rm-dup for samples
+# add initial filter for v. extreme samples (+5 s.d.?)
 
 PGEN_EXT = ["pvar", "psam", "pgen"]
 SNPQC_OUT = ["afreq", "vmiss", "hardy", "log"]
 SAMPLEQC_OUT = ["smiss", "het", "log"]
+PRUNE_EXT = ["prune.in", "prune.out", "log"]
+IBD_EXT = ["ibd", "log"]
 
 configfile: "config.yaml"
 
@@ -21,7 +24,8 @@ rule get_snp_qc_stats:
         outfile="qc_info/01_snp_qc/snp_qc"
     output:
         expand("qc_info/01_snp_qc/snp_qc.{ext}", ext=SNPQC_OUT)
-    threads: config["run"]["threads"]
+    threads:
+        config["run"]["threads"]
     shell:
         """
         /home/matthew.smith/workdir2024/plink2 \
@@ -48,7 +52,8 @@ rule filter_snps_by_qc:
         vmiss=config['qc_thresholds']['vmiss'] 
     output:
         expand("qc_info/02_post_snp_qc/qcd_data.{ext}", ext=PGEN_EXT)
-    threads: config["run"]["threads"]
+    threads:
+        config["run"]["threads"]
     shell:
         """
         /home/matthew.smith/workdir2024/plink2 \
@@ -68,10 +73,11 @@ rule get_sample_qc_stats:
         expand("qc_info/02_post_snp_qc/qcd_data.{ext}", ext=PGEN_EXT)
     params:
         infile="qc_info/02_post_snp_qc/qcd_data",
-        outfile="qc_info/03_sample_qc/sample_qc"
+        outfile="qc_info/03_het_smiss_sample_qc/sample_qc"
     output:
-        expand("qc_info/03_sample_qc/sample_qc.{ext}", ext=SAMPLEQC_OUT)
-    threads: config["run"]["threads"]
+        expand("qc_info/03_het_smiss_sample_qc/sample_qc.{ext}", ext=SAMPLEQC_OUT)
+    threads:
+        config["run"]["threads"]
     shell:
         """
         /home/matthew.smith/workdir2024/plink2 \
@@ -81,31 +87,95 @@ rule get_sample_qc_stats:
             --out {params.outfile}
         """
 
-rule filter_samples_by_qc:
+# fix arg parsing in python script
+rule find_heterozygosity_outliers:
     input:
-        expand("qc_info/03_sample_qc/sample_qc.{ext}", ext=SAMPLEQC_OUT)
+        expand("qc_info/03_het_smiss_sample_qc/sample_qc.{ext}", ext=SAMPLEQC_OUT)
     params:
         infile="qc_info/02_post_snp_qc/qcd_data.het",
-        outfile=outfile="qc_info/03_post_sample_qc/qcd_data",
-        het="",
-        smiss=config['qc_thresholds']['smiss']
+        het=config['qc_thresholds']['het']
     output:
-        expand("qc_info/03_post_sample_qc/qcd_data.{ext}", ext=PGEN_EXT)
-    threads: config["run"]["threads"]
+        "qc_info/03_het_smiss_sample_qc/het_outliers.txt"
+    threads:
+        config["run"]["threads"]
     shell:
         """
-        python3 scripts/filter_ids_by_het.py --infile --n_sds --outfile
-        # awk command to filter IDs from het file to ID file > het_outlier_ids.txt
+        python3 scripts/filter_ids_by_het.py --infile {params.infile} --n_sds {params.het} --outfile {output}
+        """
+
+rule filter_samples_by_qc:
+    input:
+        "qc_info/03_het_smiss_sample_qc/het_outliers.txt",
+        expand("qc_info/02_post_snp_qc/qcd_data.{ext}", ext=PGEN_EXT)
+    params:
+        infile="qc_info/02_post_snp_qc/qcd_data",
+        filterfile="qc_info/03_het_smiss_sample_qc/het_outliers.txt",
+        outfile="qc_info/04_post_het_smiss_sample_qc/qcd_data",
+        smiss=config['qc_thresholds']['smiss']
+    output:
+        expand("qc_info/04_post_het_smiss_sample_qc/qcd_data.{ext}", ext=PGEN_EXT)
+    threads:
+        config["run"]["threads"]
+    shell:
+        """
         /home/matthew.smith/workdir2024/plink2 \
             --pfile {params.infile} \
-            --remove het_outlier_ids.txt \
+            --remove {params.filterfile} \
             --mind {params.smiss} \
             --remove-nosex \
             --make-pgen \
             --out {params.outfile}
+        """
 
-# rule filter_samples_by_qc
-# include remove nosex, rm-dup
+rule prune_for_qc:
+    input:
+        expand("qc_info/04_post_het_smiss_sample_qc/qcd_data.{ext}", ext=PGEN_EXT)
+    params:
+        infile="qc_info/04_post_het_smiss_sample_qc/qcd_data",
+        pihat=config['qc_thresholds']['pihat'],
+        window=config['qc_thresholds']['qc_prune_window'],
+        step=config['qc_thresholds']['qc_prune_step'],
+        r2=config['qc_thresholds']['qc_prune_r2'],
+        outfile="qc_info/05_relatedness_ancestry_checks/qc_prune"
+    output:
+        expand("qc_info/05_relatedness_ancestry_checks/qc_prune.{ext}", ext=PRUNE_EXT)
+    threads:
+        config["run"]["threads"]
+    shell:
+        """
+        /home/matthew.smith/workdir2024/plink2 \
+            --pfile {params.infile} \
+            --indep-pairwise {params.window} {params.step} {params.r2} \
+            --out {params.outfile}
+        """
+
+# decide on plink1 with --genome or plink2 if king table
+# rule check_relatedness:
+#     input:
+#         expand("qc_info/05_relatedness_ancestry_checks/qc_prune.{ext}", ext=PRUNE_EXT),
+#         expand("qc_info/04_post_het_smiss_sample_qc/qcd_data.{ext}", ext=PGEN_EXT)
+#     params:
+#         infile="qc_info/04_post_het_smiss_sample_qc/qcd_data",
+#         filterfile="qc_info/05_relatedness_ancestry_checks/qc_prune.prune.in",
+#         maf=config['qc_thresholds']['qc_prune_maf'],
+#         outfile="qc_info/05_relatedness_ancestry_checks/relatedness_check"
+#     output:
+#         expand("qc_info/05_relatedness_ancestry_checks/relatedness_check.{ext}", ext=IBD_EXT)
+#     shell:
+#         """
+#         /home/matthew.smith/workdir2024/plink2 \
+#             --pfile {params.infile} \
+#             --extract {params.filterfile} \
+#             --maf 0.05 \
+#             --genome \
+#             --out 
+
+
+# rule find_related_individuals:
+
+# rule filter_samples_by_relatedness:
+
+# rule calculate_principal_components:
 
 # optional restrict to population by merging w/ 1kg 
 
@@ -118,3 +188,15 @@ rule filter_samples_by_qc:
 # rule all:
 # input:
 # "my_qcd_files.bed/bim/fam or /pgen/pvar/psam
+
+# randomly subset samples into train and test
+
+# generate report on covariates etc. by train/test split
+
+# export as additive SNPs with reference allele specified for train/test
+
+# shuffle .raw file with shuf
+
+# read raw with numpy and convert to hdf5 with dask chunks
+
+# run final check that hdf5 files read correctly and have no overlap in samples but complete overlap in SNPs for train/test
