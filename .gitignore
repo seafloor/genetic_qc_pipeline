@@ -1,3 +1,11 @@
+# snakemake
+.snakemake/*
+
+# ignore all data files
+raw_data/*
 *.{pgen,pvar,psam}
 *.{bed,bim,fam}
-*.{vmiss,smiss,hardy,freq,het,log}
+*.{vmiss,smiss,hardy,freq,het}
+
+# QC folders
+qc_info/*

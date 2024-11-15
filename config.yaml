@@ -1,0 +1,22 @@
+# plink_file is the name you would pass to --bfile or --pfile
+# dosage is yes if pgen/pvar/psam and no if bed/bim/fam
+# if imputed is yes it will trigger a SNP filter on the INFO field
+input:
+  plink_file: "eadb_gsa_core_genotypes_before_imputation_allchr"
+  dosage: yes
+  imputed: no
+
+# standard qc thresholds
+# recommended to check output in qc_info, edit and re-run if needed
+qc_thresholds:
+  maf: 0.01
+  mac: 20
+  hwe: 1e-6
+  ibd:
+  het:
+  vmiss: 0.02
+  smiss: 0.05
+  info: 0.7
+
+run:
+  threads: 8
