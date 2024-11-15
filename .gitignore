@@ -1,0 +1,3 @@
+*.{pgen,pvar,psam}
+*.{bed,bim,fam}
+*.{vmiss,smiss,hardy,freq,het,log}
